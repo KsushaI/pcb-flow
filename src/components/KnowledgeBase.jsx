@@ -111,7 +111,7 @@ function KnowledgeBase({ boardType, accuracyClass }) {
       overflow: 'auto'
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h3 style={{ margin: 0 }}>📚 База знаний</h3>
+        <h3 style={{ margin: 0 }}>📚 Подсказки</h3>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
