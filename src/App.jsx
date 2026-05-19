@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+/*import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -58,6 +58,109 @@ function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
+    </BrowserRouter>
+  );
+}
+
+export default App;*/
+
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+import LoginPage from './components/pages/LoginPage';
+import ProjectsPage from './components/pages/ProjectsPage';
+import NewProjectPage from './components/pages/NewProjectPage';
+import EditorPage from './components/pages/EditorPage';
+import ProtectedRoute from './components/ProtectedRoute';
+import { getCurrentUser, isAdmin, setCurrentUser } from './data/user';
+
+function App() {
+  const [projects, setProjects] = useState([]);
+  const [currentUser, setCurrentUserState] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Загружаем пользователя при старте
+  useEffect(() => {
+    const user = getCurrentUser();
+    setCurrentUserState(user);
+    setLoading(false);
+  }, []);
+
+  // Загружаем проекты только после того, как узнали пользователя
+  useEffect(() => {
+    if (loading) return;
+    
+    const saved = localStorage.getItem('pcb-projects');
+    if (saved) {
+      const allProjects = JSON.parse(saved);
+      if (isAdmin()) {
+        setProjects(allProjects);
+      } else {
+        const userProjects = allProjects.filter(p => p.ownerId === currentUser?.id);
+        setProjects(userProjects);
+      }
+    }
+  }, [currentUser, loading]);
+
+  const addProject = (newProject) => {
+    if (!currentUser) {
+      console.error('Пользователь не авторизован');
+      return;
+    }
+    
+    const projectWithOwner = { ...newProject, ownerId: currentUser.id };
+    const saved = localStorage.getItem('pcb-projects');
+    const allProjects = saved ? JSON.parse(saved) : [];
+    allProjects.push(projectWithOwner);
+    localStorage.setItem('pcb-projects', JSON.stringify(allProjects));
+    
+    if (!isAdmin()) {
+      setProjects(prev => [...prev, projectWithOwner]);
+    } else {
+      setProjects(allProjects);
+    }
+  };
+
+  const updateProject = (updatedProject) => {
+    const saved = localStorage.getItem('pcb-projects');
+    if (saved) {
+      const allProjects = JSON.parse(saved);
+      const updatedAll = allProjects.map(p => p.id === updatedProject.id ? updatedProject : p);
+      localStorage.setItem('pcb-projects', JSON.stringify(updatedAll));
+      
+      if (isAdmin()) {
+        setProjects(updatedAll);
+      } else if (updatedProject.ownerId === currentUser?.id) {
+        setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+      }
+    }
+  };
+
+  if (loading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Загрузка...</div>;
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={
+          <ProtectedRoute>
+            <ProjectsPage projects={projects} setProjects={setProjects} />
+          </ProtectedRoute>
+        } />
+        <Route path="/new" element={
+          <ProtectedRoute>
+            <NewProjectPage addProject={addProject} />
+          </ProtectedRoute>
+        } />
+        <Route path="/editor/:id" element={
+          <ProtectedRoute>
+            <EditorPage projects={projects} updateProject={updateProject} />
+          </ProtectedRoute>
+        } />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
     </BrowserRouter>
   );
 }

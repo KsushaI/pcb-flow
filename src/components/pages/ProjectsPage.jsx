@@ -1,26 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProjectCard from '../ProjectCard';
+import { getCurrentUser, isAdmin, setCurrentUser } from '../../data/user';
 
 function ProjectsPage({ projects, setProjects }) {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date');
+  const [loading, setLoading] = useState(true);
 
+  const currentUser = getCurrentUser();
+
+  // Загрузка проектов при монтировании компонента
   useEffect(() => {
-    // Загружаем проекты из localStorage при старте
     const saved = localStorage.getItem('pcb-projects');
     if (saved) {
-      setProjects(JSON.parse(saved));
+      const allProjects = JSON.parse(saved);
+      
+      if (isAdmin()) {
+        setProjects(allProjects);
+      } else {
+        // Технолог видит только свои проекты (если авторизован)
+        const userProjects = allProjects.filter(p => p.ownerId === currentUser?.id);
+        setProjects(userProjects);
+      }
     }
+    setLoading(false);
   }, []);
 
-  const handleDelete = (id) => {
-    if (window.confirm('Удалить проект?')) {
-      const updated = projects.filter(p => p.id !== id);
-      setProjects(updated);
-      localStorage.setItem('pcb-projects', JSON.stringify(updated));
+  const handleDelete = (projectId, ownerId) => {
+    // Проверка прав на удаление
+    if (!isAdmin() && ownerId !== currentUser?.id) {
+      alert('У вас нет прав на удаление этого проекта');
+      return;
     }
+
+    if (window.confirm('Удалить проект?')) {
+      const updated = projects.filter(p => p.id !== projectId);
+      setProjects(updated);
+      
+      // Обновляем общее хранилище
+      const saved = localStorage.getItem('pcb-projects');
+      if (saved) {
+        const allProjects = JSON.parse(saved);
+        const updatedAll = allProjects.filter(p => p.id !== projectId);
+        localStorage.setItem('pcb-projects', JSON.stringify(updatedAll));
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    navigate('/login');
   };
 
   const filteredProjects = projects
@@ -40,12 +71,70 @@ function ProjectsPage({ projects, setProjects }) {
     last: projects.length > 0 ? new Date(Math.max(...projects.map(p => new Date(p.date)))).toLocaleDateString('ru-RU') : 'Нет'
   };
 
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh' 
+      }}>
+        Загрузка проектов...
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '20px' }}>
       {/* Шапка */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-        <h1>📋 Мои проекты</h1>
-        <div>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '30px',
+        flexWrap: 'wrap',
+        gap: '15px'
+      }}>
+        <h1 style={{ margin: 0 }}>📋 Мои проекты</h1>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          {/* Информация о пользователе */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '6px 16px',
+            backgroundColor: '#f0f0f0',
+            borderRadius: '20px'
+          }}>
+            <span style={{ fontSize: '14px' }}>
+              👤 {currentUser?.name || currentUser?.login} 
+              <span style={{ 
+                marginLeft: '8px', 
+                fontSize: '12px', 
+                color: currentUser?.role === 'admin' ? '#4CAF50' : '#2196F3',
+                fontWeight: 'bold'
+              }}>
+                ({currentUser?.role === 'admin' ? 'Администратор' : 'Технолог'})
+              </span>
+            </span>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#f44336',
+                color: 'white',
+                border: 'none',
+                borderRadius: '16px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 'bold'
+              }}
+            >
+              Выйти
+            </button>
+          </div>
+          
           <button
             onClick={() => navigate('/new')}
             style={{
@@ -103,7 +192,8 @@ function ProjectsPage({ projects, setProjects }) {
         borderRadius: '8px',
         marginBottom: '30px',
         display: 'flex',
-        gap: '30px'
+        gap: '30px',
+        flexWrap: 'wrap'
       }}>
         <div>📊 Всего: <strong>{stats.total}</strong></div>
         <div>🟢 ОПП: <strong>{stats.opp}</strong></div>
@@ -123,7 +213,8 @@ function ProjectsPage({ projects, setProjects }) {
             key={project.id}
             project={project}
             onOpen={(id) => navigate(`/editor/${id}`)}
-            onDelete={handleDelete}
+            onDelete={() => handleDelete(project.id, project.ownerId)}
+            canEdit={isAdmin() || project.ownerId === currentUser?.id}
           />
         ))}
         

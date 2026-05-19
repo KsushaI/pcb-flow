@@ -1,6 +1,6 @@
 import React from 'react';
 
-function ProjectCard({ project, onOpen, onDelete }) {
+function ProjectCard({ project, onOpen, onDelete, canEdit }) {
   return (
     <div style={{
       border: '1px solid #ddd',
@@ -30,39 +30,41 @@ function ProjectCard({ project, onOpen, onDelete }) {
         </div>
       </div>
       
-      <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between' }}>
-        <button
-          onClick={() => onOpen(project.id)}
-          style={{
-            padding: '8px 20px',
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            flex: 1
-          }}
-        >
-          Открыть
-        </button>
-        
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(project.id);
-          }}
-          style={{
-            padding: '8px 12px',
-            backgroundColor: '#f44336',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer'
-          }}
-        >
-          ✕
-        </button>
-      </div>
+      {canEdit && (
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between' }}>
+          <button
+            onClick={() => onOpen(project.id)}
+            style={{
+              padding: '8px 20px',
+              backgroundColor: '#4CAF50',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              flex: 1
+            }}
+          >
+            Открыть
+          </button>
+          
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(project.id);
+            }}
+            style={{
+              padding: '8px 12px',
+              backgroundColor: '#f44336',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
