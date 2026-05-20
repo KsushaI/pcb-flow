@@ -108,16 +108,18 @@ function App() {
       return;
     }
     
-    const projectWithOwner = { ...newProject, ownerId: currentUser.id };
     const saved = localStorage.getItem('pcb-projects');
     const allProjects = saved ? JSON.parse(saved) : [];
-    allProjects.push(projectWithOwner);
+    allProjects.push(newProject);
     localStorage.setItem('pcb-projects', JSON.stringify(allProjects));
     
-    if (!isAdmin()) {
-      setProjects(prev => [...prev, projectWithOwner]);
-    } else {
+    // Обновляем состояние projects в зависимости от роли
+    if (isAdmin()) {
       setProjects(allProjects);
+    } else {
+      // Технолог видит только свои проекты
+      const userProjects = allProjects.filter(p => p.ownerId === currentUser.id);
+      setProjects(userProjects);
     }
   };
 

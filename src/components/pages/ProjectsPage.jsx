@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProjectCard from '../ProjectCard';
 import { getCurrentUser, isAdmin, setCurrentUser } from '../../data/user';
+import { users } from '../../data/user'; // ← ДОБАВИТЬ
 
 function ProjectsPage({ projects, setProjects }) {
   const navigate = useNavigate();
@@ -11,7 +12,12 @@ function ProjectsPage({ projects, setProjects }) {
 
   const currentUser = getCurrentUser();
 
-  // Загрузка проектов при монтировании компонента
+  // ← ДОБАВИТЬ ФУНКЦИЮ
+  const getUserName = (userId) => {
+    const user = users.find(u => u.id === userId);
+    return user ? (user.name || user.login) : 'Неизвестный';
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('pcb-projects');
     if (saved) {
@@ -20,7 +26,6 @@ function ProjectsPage({ projects, setProjects }) {
       if (isAdmin()) {
         setProjects(allProjects);
       } else {
-        // Технолог видит только свои проекты (если авторизован)
         const userProjects = allProjects.filter(p => p.ownerId === currentUser?.id);
         setProjects(userProjects);
       }
@@ -29,7 +34,6 @@ function ProjectsPage({ projects, setProjects }) {
   }, []);
 
   const handleDelete = (projectId, ownerId) => {
-    // Проверка прав на удаление
     if (!isAdmin() && ownerId !== currentUser?.id) {
       alert('У вас нет прав на удаление этого проекта');
       return;
@@ -39,7 +43,6 @@ function ProjectsPage({ projects, setProjects }) {
       const updated = projects.filter(p => p.id !== projectId);
       setProjects(updated);
       
-      // Обновляем общее хранилище
       const saved = localStorage.getItem('pcb-projects');
       if (saved) {
         const allProjects = JSON.parse(saved);
@@ -71,14 +74,11 @@ function ProjectsPage({ projects, setProjects }) {
     last: projects.length > 0 ? new Date(Math.max(...projects.map(p => new Date(p.date)))).toLocaleDateString('ru-RU') : 'Нет'
   };
 
+  const roleDisplay = currentUser?.role === 'admin' ? 'Администратор' : 'Технолог';
+
   if (loading) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh' 
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         Загрузка проектов...
       </div>
     );
@@ -86,37 +86,24 @@ function ProjectsPage({ projects, setProjects }) {
 
   return (
     <div style={{ padding: '20px' }}>
-      {/* Шапка */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '30px',
-        flexWrap: 'wrap',
-        gap: '15px'
-      }}>
-        <h1 style={{ margin: 0 }}>📋 Мои проекты</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
+        <h1 style={{ margin: 0 }}>Мои проекты</h1>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          {/* Информация о пользователе */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '6px 16px',
-            backgroundColor: '#f0f0f0',
-            borderRadius: '20px'
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '6px 16px',
+              backgroundColor: '#f0f0f0',
+              borderRadius: '20px',
+              cursor: 'default'
+            }}
+            title={`Роль: ${roleDisplay}`}
+          >
             <span style={{ fontSize: '14px' }}>
-              👤 {currentUser?.name || currentUser?.login} 
-              <span style={{ 
-                marginLeft: '8px', 
-                fontSize: '12px', 
-                color: currentUser?.role === 'admin' ? '#4CAF50' : '#2196F3',
-                fontWeight: 'bold'
-              }}>
-                ({currentUser?.role === 'admin' ? 'Администратор' : 'Технолог'})
-              </span>
+              👤 {currentUser?.name || currentUser?.login}
             </span>
             <button
               onClick={handleLogout}
@@ -148,16 +135,15 @@ function ProjectsPage({ projects, setProjects }) {
               cursor: 'pointer'
             }}
           >
-            ➕ Создать новый проект
+            Создать новый проект
           </button>
         </div>
       </div>
 
-      {/* Поиск и сортировка */}
       <div style={{ display: 'flex', gap: '20px', marginBottom: '30px' }}>
         <input
           type="text"
-          placeholder="🔍 Поиск проектов..."
+          placeholder="Поиск проектов..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{
@@ -185,29 +171,15 @@ function ProjectsPage({ projects, setProjects }) {
         </select>
       </div>
 
-      {/* Статистика */}
-      <div style={{
-        backgroundColor: '#f5f5f5',
-        padding: '15px',
-        borderRadius: '8px',
-        marginBottom: '30px',
-        display: 'flex',
-        gap: '30px',
-        flexWrap: 'wrap'
-      }}>
-        <div>📊 Всего: <strong>{stats.total}</strong></div>
-        <div>🟢 ОПП: <strong>{stats.opp}</strong></div>
-        <div>🔵 ДПП: <strong>{stats.dpp}</strong></div>
-        <div>🟣 МПП: <strong>{stats.mpp}</strong></div>
-        <div>📅 Последний: {stats.last}</div>
+      <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '30px', display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+        <div>Всего: <strong>{stats.total}</strong></div>
+        <div>ОПП: <strong>{stats.opp}</strong></div>
+        <div>ДПП: <strong>{stats.dpp}</strong></div>
+        <div>МПП: <strong>{stats.mpp}</strong></div>
+        <div>Последний: {stats.last}</div>
       </div>
 
-      {/* Сетка проектов */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-        gap: '20px'
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
         {filteredProjects.map(project => (
           <ProjectCard
             key={project.id}
@@ -215,16 +187,13 @@ function ProjectsPage({ projects, setProjects }) {
             onOpen={(id) => navigate(`/editor/${id}`)}
             onDelete={() => handleDelete(project.id, project.ownerId)}
             canEdit={isAdmin() || project.ownerId === currentUser?.id}
+            showOwner={isAdmin()}
+            ownerName={getUserName(project.ownerId)}
           />
         ))}
         
         {filteredProjects.length === 0 && (
-          <div style={{
-            gridColumn: '1/-1',
-            textAlign: 'center',
-            padding: '50px',
-            color: '#999'
-          }}>
+          <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '50px', color: '#999' }}>
             {projects.length === 0 
               ? 'Нет проектов. Создайте первый!'
               : 'Ничего не найдено'}

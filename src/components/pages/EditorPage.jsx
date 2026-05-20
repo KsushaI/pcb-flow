@@ -1,7 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getNodesBounds, getViewportForBounds } from 'reactflow';
-
 import ReactFlow, {
     addEdge,
     MiniMap,
@@ -18,6 +16,7 @@ import { toPng } from 'html-to-image';
 import CustomNode from '../CustomNode';
 import KnowledgeBase from '../KnowledgeBase';
 import { operationTemplates, processTemplates } from '../../data/templates';
+import { validateProject, rulesDatabase } from '../KnowledgeBase';
 
 const nodeTypes = {
     custom: CustomNode
@@ -27,21 +26,49 @@ function EditorPage({ projects, updateProject }) {
     const { id } = useParams();
     const navigate = useNavigate();
 
-    // Все хуки ДО условного рендеринга!
+    // Состояния для модальных окон
     const [showCustomModal, setShowCustomModal] = useState(false);
+    const [showParamsModal, setShowParamsModal] = useState(false);
     const [customOpName, setCustomOpName] = useState('');
     const [customOpCategory, setCustomOpCategory] = useState('Пользовательские');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [warnings, setWarnings] = useState([]);
+    const [hasValidated, setHasValidated] = useState(false);
 
-    // Находим проект после всех хуков
+    // Находим проект
     const project = projects.find(p => p.id === id);
 
-    // Инициализация узлов и связей (тоже до условного рендера)
+    // Инициализация узлов и связей
     const [nodes, setNodes, onNodesChange] = useNodesState(project?.nodes || []);
     const [edges, setEdges, onEdgesChange] = useEdgesState(project?.edges || []);
 
-    // useCallback тоже ДО условного рендера
+    // Состояние для редактируемых параметров
+    const [editParams, setEditParams] = useState({
+        name: '',
+        type: 'ОПП',
+        accuracyClass: 3,
+        material: 'FR-4',
+        foil: 35,
+        standard: 'ГОСТ 23752-79',
+        ipcClass: 'none'
+    });
+
+    const openParamsModal = useCallback(() => {
+        if (project) {
+            setEditParams({
+                name: project.name,
+                type: project.type,
+                accuracyClass: project.accuracyClass,
+                material: project.material,
+                foil: project.foil,
+                standard: project.standard || 'ГОСТ 23752-79',
+                ipcClass: project.ipcClass || 'none'
+            });
+            setShowParamsModal(true);
+        }
+    }, [project]);
+
     const onConnect = useCallback(
         (params) => setEdges((eds) => addEdge({ ...params, type: 'smoothstep' }, eds)),
         [setEdges]
@@ -68,7 +95,17 @@ function EditorPage({ projects, updateProject }) {
         }
     }, [customOpName, customOpCategory, addNode]);
 
-    const saveProject = useCallback(() => {
+    const doSaveProject = useCallback((updatedProject) => {
+        updateProject(updatedProject);
+    }, [updateProject]);
+
+    const doValidate = useCallback((proj) => {
+        const validationWarnings = validateProject(proj, nodes, edges);
+        setWarnings(validationWarnings);
+        return validationWarnings;
+    }, [nodes, edges]);
+
+    const saveAndValidate = useCallback(() => {
         if (!project) return;
 
         const updatedProject = {
@@ -77,54 +114,106 @@ function EditorPage({ projects, updateProject }) {
             edges,
             lastEdited: new Date().toISOString()
         };
-        updateProject(updatedProject);
-        alert('Проект сохранен');
-    }, [project, nodes, edges, updateProject]);
+        doSaveProject(updatedProject);
+        doValidate(updatedProject);
+        setHasValidated(true);
+    }, [project, nodes, edges, doSaveProject, doValidate]);
 
-
-
-
-const downloadAsPNG = useCallback(() => {
-  // ✅ Правильный селектор для React Flow
-  const flowElement = document.querySelector('.react-flow__viewport');
-  
-  if (flowElement) {
-    toPng(flowElement, {
-      backgroundColor: '#ffffff',
-      // ❌ Не задавайте width/height вручную — пусть библиотека определит сама
-      quality: 1,
-      pixelRatio: 2,
-      // ✅ Исключите элементы управления из скриншота
-      filter: (node) => {
-        const className = node?.classList?.toString() || '';
-        return !className.includes('react-flow__controls') && 
-               !className.includes('react-flow__minimap');
-      },
-      // ✅ Важно для SVG-элементов
-      style: {
-        transform: 'none', // сброс трансформаций
-        left: '0',
-        top: '0',
-      },
-    })
-      .then((dataUrl) => {
-        const link = document.createElement('a');
-        link.download = `${project.name || 'process'}_${new Date().toISOString().slice(0,10)}.png`;
-        link.href = dataUrl;
-        link.click();
-      })
-      .catch((error) => {
-        console.error('Ошибка при сохранении PNG:', error);
-        alert('Не удалось сохранить изображение');
-      });
-  } else {
-    alert('Элемент графа не найден');
-  }
-}, [project]);
-    // Автосохранение
-    useEffect(() => {
+    const saveProjectParams = useCallback(() => {
         if (!project) return;
 
+        const updatedProject = {
+            ...project,
+            name: editParams.name,
+            type: editParams.type,
+            accuracyClass: editParams.accuracyClass,
+            material: editParams.material,
+            foil: editParams.foil,
+            standard: editParams.standard,
+            ipcClass: editParams.ipcClass,
+            lastEdited: new Date().toISOString()
+        };
+
+        doSaveProject(updatedProject);
+        doValidate(updatedProject);
+        setShowParamsModal(false);
+    }, [project, editParams, doSaveProject, doValidate]);
+
+    const downloadAsPNG = useCallback(async () => {
+        if (!project) return;
+
+        const flowElement = document.querySelector('.react-flow');
+        const viewportElement = document.querySelector('.react-flow__viewport');
+
+        if (!flowElement || !viewportElement) {
+            return;
+        }
+
+        const originalTransform = viewportElement.style.transform;
+        const originalOverflow = flowElement.style.overflow;
+        const originalWidth = flowElement.style.width;
+        const originalHeight = flowElement.style.height;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        nodes.forEach(node => {
+            const x = node.position.x;
+            const y = node.position.y;
+            const width = 180;
+            const height = 60;
+
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + width);
+            maxY = Math.max(maxY, y + height);
+        });
+
+        const padding = 50;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const contentWidth = maxX - minX;
+        const contentHeight = maxY - minY;
+
+        flowElement.style.overflow = 'visible';
+        flowElement.style.width = `${contentWidth}px`;
+        flowElement.style.height = `${contentHeight}px`;
+        viewportElement.style.transform = `translate(${-minX}px, ${-minY}px) scale(1)`;
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        try {
+            const dataUrl = await toPng(flowElement, {
+                backgroundColor: '#ffffff',
+                quality: 1,
+                pixelRatio: 2,
+                filter: (node) => {
+                    const className = node?.classList?.toString() || '';
+                    return !className.includes('react-flow__controls') &&
+                        !className.includes('react-flow__minimap') &&
+                        !className.includes('react-flow__panel');
+                }
+            });
+
+            const link = document.createElement('a');
+            link.download = `${project.name || 'process'}_${new Date().toISOString().slice(0, 10)}.png`;
+            link.href = dataUrl;
+            link.click();
+        } catch (error) {
+            console.error('Ошибка при сохранении PNG:', error);
+        } finally {
+            flowElement.style.overflow = originalOverflow;
+            flowElement.style.width = originalWidth;
+            flowElement.style.height = originalHeight;
+            viewportElement.style.transform = originalTransform;
+        }
+    }, [project, nodes]);
+
+    // Автосохранение графа
+    useEffect(() => {
+        if (!project) return;
         const timer = setTimeout(() => {
             const updatedProject = {
                 ...project,
@@ -134,11 +223,9 @@ const downloadAsPNG = useCallback(() => {
             };
             updateProject(updatedProject);
         }, 1000);
-
         return () => clearTimeout(timer);
     }, [nodes, edges, project, updateProject]);
 
-    // ТЕПЕРЬ можно делать условный рендеринг
     if (!project) {
         return (
             <div style={{
@@ -149,7 +236,7 @@ const downloadAsPNG = useCallback(() => {
                 flexDirection: 'column',
                 gap: '20px'
             }}>
-                <h2>❌ Проект не найден</h2>
+                <h2>Проект не найден</h2>
                 <button
                     onClick={() => navigate('/')}
                     style={{
@@ -167,14 +254,11 @@ const downloadAsPNG = useCallback(() => {
         );
     }
 
-    // Фильтрация операций
     const filteredOperations = () => {
         let operations = operationTemplates.common;
-
         if (project.type !== 'common') {
             operations = [...operations, ...(operationTemplates[project.type] || [])];
         }
-
         return operations.filter(op =>
             (selectedCategory === 'all' || op.category === selectedCategory) &&
             op.label.toLowerCase().includes(searchTerm.toLowerCase())
@@ -185,7 +269,6 @@ const downloadAsPNG = useCallback(() => {
 
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-
             {/* Верхняя панель */}
             <div style={{
                 padding: '10px 20px',
@@ -221,7 +304,21 @@ const downloadAsPNG = useCallback(() => {
 
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button
-                        onClick={saveProject}
+                        onClick={openParamsModal}
+                        style={{
+                            padding: '8px 20px',
+                            backgroundColor: '#0084ff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ⚙️ Параметры
+                    </button>
+
+                    <button
+                        onClick={saveAndValidate}
                         style={{
                             padding: '8px 20px',
                             backgroundColor: '#4CAF50',
@@ -238,36 +335,50 @@ const downloadAsPNG = useCallback(() => {
                         onClick={downloadAsPNG}
                         style={{
                             padding: '8px 20px',
-                            backgroundColor: '#2196F3',
+                            backgroundColor: '#f39821',
                             color: 'white',
                             border: 'none',
                             borderRadius: '4px',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '5px'
+                            gap: '8px'
                         }}
                     >
-                        🖼️ PNG
+                        <img
+                            src="/icon.png"
+                            alt="PNG"
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                            }}
+                        />
+                        PNG
                     </button>
                 </div>
             </div>
+
             {/* Основная область */}
             <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                {/* Левая панель - библиотека операций */}
+                {/* Левая панель */}
                 <div style={{
                     width: '300px',
                     borderRight: '1px solid #ddd',
                     backgroundColor: '#fafafa',
                     display: 'flex',
-                    flexDirection: 'column'
+                    flexDirection: 'column',
+                    overflow: 'hidden'
                 }}>
-                    <div style={{ padding: '15px', borderBottom: '1px solid #ddd' }}>
-                        <h3 style={{ margin: '0 0 15px 0' }}>📋 Библиотека операций</h3>
+                    <div style={{
+                        padding: '15px',
+                        borderBottom: '1px solid #ddd',
+                        flexShrink: 0
+                    }}>
+                        <h3 style={{ margin: '0 0 15px 0' }}>Библиотека операций</h3>
 
                         <input
                             type="text"
-                            placeholder="🔍 Поиск..."
+                            placeholder="Поиск..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             style={{
@@ -275,7 +386,8 @@ const downloadAsPNG = useCallback(() => {
                                 padding: '8px',
                                 borderRadius: '4px',
                                 border: '1px solid #ddd',
-                                marginBottom: '10px'
+                                marginBottom: '10px',
+                                boxSizing: 'border-box'
                             }}
                         />
 
@@ -287,7 +399,8 @@ const downloadAsPNG = useCallback(() => {
                                 padding: '8px',
                                 borderRadius: '4px',
                                 border: '1px solid #ddd',
-                                marginBottom: '10px'
+                                marginBottom: '10px',
+                                boxSizing: 'border-box'
                             }}
                         >
                             <option value="all">Все категории</option>
@@ -305,14 +418,19 @@ const downloadAsPNG = useCallback(() => {
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                boxSizing: 'border-box'
                             }}
                         >
-                            ✚ Создать кастомную операцию
+                            Создать операцию
                         </button>
                     </div>
 
-                    <div style={{ flex: 1, overflow: 'auto', padding: '15px' }}>
+                    <div style={{
+                        flex: 1,
+                        overflow: 'auto',
+                        padding: '15px'
+                    }}>
                         {filteredOperations().map(op => (
                             <div
                                 key={op.id}
@@ -325,7 +443,8 @@ const downloadAsPNG = useCallback(() => {
                                     borderRadius: '6px',
                                     cursor: 'grab',
                                     transition: 'all 0.2s',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                    wordBreak: 'break-word'
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)'}
                                 onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'}
@@ -353,7 +472,6 @@ const downloadAsPNG = useCallback(() => {
                         <Controls />
                         <MiniMap />
                         <Background />
-
                         <Panel position="top-right" style={{ background: 'white', padding: '8px', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                             <div>Узлов: {nodes.length} | Связей: {edges.length}</div>
                         </Panel>
@@ -370,6 +488,9 @@ const downloadAsPNG = useCallback(() => {
                     <KnowledgeBase
                         boardType={project.type}
                         accuracyClass={project.accuracyClass}
+                        warnings={warnings}
+                        rulesDatabase={rulesDatabase}
+                        hasValidated={hasValidated}
                     />
                 </div>
             </div>
@@ -396,7 +517,6 @@ const downloadAsPNG = useCallback(() => {
                         maxWidth: '90%'
                     }}>
                         <h3 style={{ marginTop: 0 }}>Создание кастомной операции</h3>
-
                         <div style={{ marginBottom: '20px' }}>
                             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                                 Название операции
@@ -416,7 +536,6 @@ const downloadAsPNG = useCallback(() => {
                                 autoFocus
                             />
                         </div>
-
                         <div style={{ marginBottom: '20px' }}>
                             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                                 Категория
@@ -443,7 +562,6 @@ const downloadAsPNG = useCallback(() => {
                                 <option>Пользовательские</option>
                             </select>
                         </div>
-
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                             <button
                                 onClick={() => setShowCustomModal(false)}
@@ -472,6 +590,215 @@ const downloadAsPNG = useCallback(() => {
                                 }}
                             >
                                 Добавить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Модальное окно для редактирования параметров проекта */}
+            {showParamsModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        padding: '30px',
+                        borderRadius: '12px',
+                        width: '500px',
+                        maxWidth: '90%',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }}>
+                        <h3 style={{ marginTop: 0 }}>Параметры проекта</h3>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Название проекта
+                            </label>
+                            <input
+                                type="text"
+                                value={editParams.name}
+                                onChange={(e) => setEditParams(prev => ({ ...prev, name: e.target.value }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #ddd',
+                                    boxSizing: 'border-box'
+                                }}
+                            />
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Тип платы
+                            </label>
+                            <div style={{ display: 'flex', gap: '20px' }}>
+                                {['ОПП', 'ДПП', 'МПП'].map(type => (
+                                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input
+                                            type="radio"
+                                            value={type}
+                                            checked={editParams.type === type}
+                                            onChange={(e) => setEditParams(prev => ({ ...prev, type: e.target.value }))}
+                                        />
+                                        {type}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Класс точности
+                            </label>
+                            <select
+                                value={editParams.accuracyClass}
+                                onChange={(e) => setEditParams(prev => ({ ...prev, accuracyClass: parseInt(e.target.value) }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #ddd'
+                                }}
+                            >
+                                {[1, 2, 3, 4, 5].map(cls => (
+                                    <option key={cls} value={cls}>Класс {cls}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Материал основания
+                            </label>
+                            <select
+                                value={editParams.material}
+                                onChange={(e) => setEditParams(prev => ({ ...prev, material: e.target.value }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #ddd'
+                                }}
+                            >
+                                <option>FR-4</option>
+                                <option>PTFE</option>
+                                <option>Керамика</option>
+                                <option>Полиимид</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Толщина фольги (мкм)
+                            </label>
+                            <select
+                                value={editParams.foil}
+                                onChange={(e) => setEditParams(prev => ({ ...prev, foil: parseInt(e.target.value) }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #ddd'
+                                }}
+                            >
+                                <option value={18}>18 мкм</option>
+                                <option value={35}>35 мкм</option>
+                                <option value={70}>70 мкм</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                Стандарт качества
+                            </label>
+                            <select
+                                value={editParams.standard}
+                                onChange={(e) => {
+                                    const newStandard = e.target.value;
+                                    setEditParams(prev => ({
+                                        ...prev,
+                                        standard: newStandard,
+                                        ipcClass: newStandard.includes('IPC') ? '2' : 'none'
+                                    }));
+                                }}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #ddd'
+                                }}
+                            >
+                                <option value="ГОСТ 23752-79">ГОСТ 23752-79</option>
+                                <option value="IPC-6012B Class 2">IPC-6012B Class 2</option>
+                                <option value="IPC-6012B Class 3">IPC-6012B Class 3</option>
+                            </select>
+                        </div>
+
+                        {editParams.standard.includes('IPC') && (
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                    IPC Class
+                                </label>
+                                <div style={{ display: 'flex', gap: '20px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input
+                                            type="radio"
+                                            value="2"
+                                            checked={editParams.ipcClass === '2'}
+                                            onChange={(e) => setEditParams(prev => ({ ...prev, ipcClass: e.target.value }))}
+                                        />
+                                        Class 2 (промышленная электроника)
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input
+                                            type="radio"
+                                            value="3"
+                                            checked={editParams.ipcClass === '3'}
+                                            onChange={(e) => setEditParams(prev => ({ ...prev, ipcClass: e.target.value }))}
+                                        />
+                                        Class 3 (высоконадёжная техника)
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '15px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                            <button
+                                onClick={() => setShowParamsModal(false)}
+                                style={{
+                                    padding: '10px 20px',
+                                    backgroundColor: '#f0f0f0',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={saveProjectParams}
+                                style={{
+                                    padding: '10px 20px',
+                                    backgroundColor: '#4CAF50',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Сохранить параметры
                             </button>
                         </div>
                     </div>

@@ -1,24 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
+import { getCurrentUser } from '../../data/user';
 
 function NewProjectPage({ addProject }) {
   const navigate = useNavigate();
+  const currentUser = getCurrentUser(); // ← получаем текущего пользователя
   
   const [formData, setFormData] = useState({
     name: '',
     type: 'ОПП',
     accuracyClass: '3',
-    standard: 'ГОСТ 23752-79',
     material: 'FR-4',
-    thickness: '1.6',
     foil: '35',
-    options: {
-      metalization: true,
-      immersionGold: false,
-      solderMask: true,
-      marking: true
-    },
+    standard: 'ГОСТ 23752-79',
     ipcClass: 'none',
     template: 'empty'
   });
@@ -30,13 +25,15 @@ function NewProjectPage({ addProject }) {
       id: uuidv4(),
       name: formData.name || `Проект ${new Date().toLocaleDateString()}`,
       type: formData.type,
-      accuracyClass: formData.accuracyClass,
+      accuracyClass: parseInt(formData.accuracyClass),
       material: formData.material,
-      thickness: formData.thickness,
-      foil: formData.foil,
+      foil: parseInt(formData.foil),
+      standard: formData.standard,
+      ipcClass: formData.ipcClass,
       date: new Date().toISOString(),
       nodes: [],
-      edges: []
+      edges: [],
+      ownerId: currentUser?.id  // ← КЛЮЧЕВОЕ ПОЛЕ — привязка к пользователю
     };
     
     addProject(newProject);
@@ -59,7 +56,7 @@ function NewProjectPage({ addProject }) {
         >
           ← Назад к проектам
         </button>
-        <h1 style={{ marginTop: '20px' }}>🆕 Создание нового проекта</h1>
+        <h1 style={{ marginTop: '20px' }}>Создание нового проекта</h1>
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -109,6 +106,9 @@ function NewProjectPage({ addProject }) {
                 </label>
               ))}
             </div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+              Определяет обязательные операции и допустимые технологические процессы
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -127,29 +127,18 @@ function NewProjectPage({ addProject }) {
                 }}
               >
                 {[1,2,3,4,5].map(cls => (
-                  <option key={cls} value={cls}>Класс {cls}</option>
+                  <option key={cls} value={cls}>
+                    Класс {cls} {cls === 1 && '(ширина ≥0.75 мм)'}
+                    {cls === 2 && '(ширина ≥0.45 мм)'}
+                    {cls === 3 && '(ширина ≥0.25 мм)'}
+                    {cls === 4 && '(ширина ≥0.15 мм)'}
+                    {cls === 5 && '(ширина ≥0.10 мм)'}
+                  </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                Стандарт качества
-              </label>
-              <select
-                value={formData.standard}
-                onChange={(e) => setFormData({...formData, standard: e.target.value})}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd'
-                }}
-              >
-                <option>ГОСТ 23752-79</option>
-                <option>IPC-6012B Class 2</option>
-                <option>IPC-6012B Class 3</option>
-              </select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                По ГОСТ 23751-86. Влияет на минимальную ширину проводника и зазоры
+              </div>
             </div>
 
             <div>
@@ -171,27 +160,9 @@ function NewProjectPage({ addProject }) {
                 <option>Керамика</option>
                 <option>Полиимид</option>
               </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                Толщина материала (мм)
-              </label>
-              <select
-                value={formData.thickness}
-                onChange={(e) => setFormData({...formData, thickness: e.target.value})}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd'
-                }}
-              >
-                <option>0.8</option>
-                <option>1.0</option>
-                <option>1.6</option>
-                <option>2.0</option>
-              </select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Влияет на температурные режимы пайки и химическую стойкость
+              </div>
             </div>
 
             <div>
@@ -208,114 +179,73 @@ function NewProjectPage({ addProject }) {
                   border: '1px solid #ddd'
                 }}
               >
-                <option>18</option>
-                <option>35</option>
-                <option>70</option>
+                <option value="18">18 мкм (тонкая, для плотного монтажа)</option>
+                <option value="35">35 мкм (стандартная)</option>
+                <option value="70">70 мкм (усиленная, для силовых цепей)</option>
               </select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Влияет на параметры травления и толщину проводников
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                Стандарт качества
+              </label>
+              <select
+                value={formData.standard}
+                onChange={(e) => {
+                  const newStandard = e.target.value;
+                  setFormData({
+                    ...formData,
+                    standard: newStandard,
+                    ipcClass: newStandard.includes('IPC') ? '2' : 'none'
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '1px solid #ddd'
+                }}
+              >
+                <option value="ГОСТ 23752-79">ГОСТ 23752-79 (Российский стандарт)</option>
+                <option value="IPC-6012B Class 2">IPC-6012B Class 2 (промышленная электроника)</option>
+                <option value="IPC-6012B Class 3">IPC-6012B Class 3 (высоконадёжная техника)</option>
+              </select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Определяет требования к толщине металлизации и качеству изготовления
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Дополнительные параметры */}
-        <div style={{
-          border: '1px solid #ddd',
-          borderRadius: '12px',
-          padding: '20px',
-          marginBottom: '25px'
-        }}>
-          <h3 style={{ marginTop: 0 }}>Дополнительные параметры</h3>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input
-                type="checkbox"
-                checked={formData.options.metalization}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  options: {...formData.options, metalization: e.target.checked}
-                })}
-              />
-              Требуется металлизация отверстий
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input
-                type="checkbox"
-                checked={formData.options.immersionGold}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  options: {...formData.options, immersionGold: e.target.checked}
-                })}
-              />
-              Иммерсионное золото (ENIG)
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input
-                type="checkbox"
-                checked={formData.options.solderMask}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  options: {...formData.options, solderMask: e.target.checked}
-                })}
-              />
-              Паяльная маска
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input
-                type="checkbox"
-                checked={formData.options.marking}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  options: {...formData.options, marking: e.target.checked}
-                })}
-              />
-              Маркировка
-            </label>
-          </div>
-        </div>
-
-        {/* Выбор шаблона */}
-        <div style={{
-          border: '1px solid #ddd',
-          borderRadius: '12px',
-          padding: '20px',
-          marginBottom: '25px'
-        }}>
-          <h3 style={{ marginTop: 0 }}>Выбор шаблона</h3>
-
-          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <input
-                type="radio"
-                value="empty"
-                checked={formData.template === 'empty'}
-                onChange={(e) => setFormData({...formData, template: e.target.value})}
-              />
-              Пустой проект
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <input
-                type="radio"
-                value="opp"
-                checked={formData.template === 'opp'}
-                onChange={(e) => setFormData({...formData, template: e.target.value})}
-              />
-              Шаблон ОПП (из Резонит)
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <input
-                type="radio"
-                value="dpp"
-                checked={formData.template === 'dpp'}
-                onChange={(e) => setFormData({...formData, template: e.target.value})}
-              />
-              Шаблон ДПП (из Резонит)
-            </label>
-          </div>
+          {formData.standard.includes('IPC') && (
+            <div style={{ marginTop: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                IPC Class
+              </label>
+              <div style={{ display: 'flex', gap: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <input
+                    type="radio"
+                    value="2"
+                    checked={formData.ipcClass === '2'}
+                    onChange={(e) => setFormData({...formData, ipcClass: e.target.value})}
+                  />
+                  Class 2 (промышленная электроника)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <input
+                    type="radio"
+                    value="3"
+                    checked={formData.ipcClass === '3'}
+                    onChange={(e) => setFormData({...formData, ipcClass: e.target.value})}
+                  />
+                  Class 3 (высоконадёжная техника, ≥25 мкм металлизации)
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Кнопки */}

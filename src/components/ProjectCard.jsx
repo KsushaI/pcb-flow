@@ -1,6 +1,6 @@
 import React from 'react';
 
-function ProjectCard({ project, onOpen, onDelete, canEdit }) {
+function ProjectCard({ project, onOpen, onDelete, canEdit, showOwner = false, ownerName = '' }) {
   return (
     <div style={{
       border: '1px solid #ddd',
@@ -28,6 +28,11 @@ function ProjectCard({ project, onOpen, onDelete, canEdit }) {
         <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>
           {new Date(project.date).toLocaleDateString('ru-RU')}
         </div>
+        {showOwner && ownerName && (
+          <div style={{ fontSize: '12px', color: '#4CAF50', marginTop: '5px' }}>
+            Владелец: {ownerName}
+          </div>
+        )}
       </div>
       
       {canEdit && (
