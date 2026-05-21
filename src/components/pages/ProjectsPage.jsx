@@ -2,17 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProjectCard from '../ProjectCard';
 import { getCurrentUser, isAdmin, setCurrentUser } from '../../data/user';
-import { users } from '../../data/user'; // ← ДОБАВИТЬ
+import { users } from '../../data/user';
 
 function ProjectsPage({ projects, setProjects }) {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
 
   const currentUser = getCurrentUser();
 
-  // ← ДОБАВИТЬ ФУНКЦИЮ
   const getUserName = (userId) => {
     const user = users.find(u => u.id === userId);
     return user ? (user.name || user.login) : 'Неизвестный';
@@ -22,7 +22,7 @@ function ProjectsPage({ projects, setProjects }) {
     const saved = localStorage.getItem('pcb-projects');
     if (saved) {
       const allProjects = JSON.parse(saved);
-      
+
       if (isAdmin()) {
         setProjects(allProjects);
       } else {
@@ -42,7 +42,7 @@ function ProjectsPage({ projects, setProjects }) {
     if (window.confirm('Удалить проект?')) {
       const updated = projects.filter(p => p.id !== projectId);
       setProjects(updated);
-      
+
       const saved = localStorage.getItem('pcb-projects');
       if (saved) {
         const allProjects = JSON.parse(saved);
@@ -57,13 +57,22 @@ function ProjectsPage({ projects, setProjects }) {
     navigate('/login');
   };
 
+  const toggleSortOrder = () => {
+    setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+  };
+
   const filteredProjects = projects
     .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'date') return new Date(b.date) - new Date(a.date);
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'type') return a.type.localeCompare(b.type);
-      return 0;
+      let result = 0;
+      if (sortBy === 'date') {
+        result = new Date(a.date) - new Date(b.date);
+      } else if (sortBy === 'name') {
+        result = a.name.localeCompare(b.name);
+      } else if (sortBy === 'type') {
+        result = a.type.localeCompare(b.type);
+      }
+      return sortOrder === 'desc' ? -result : result;
     });
 
   const stats = {
@@ -85,25 +94,26 @@ function ProjectsPage({ projects, setProjects }) {
   }
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
         <h1 style={{ margin: 0 }}>Мои проекты</h1>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              padding: '6px 16px',
+              padding: '0 16px',
               backgroundColor: '#f0f0f0',
               borderRadius: '20px',
-              cursor: 'default'
+              cursor: 'default',
+              height: '48px'
             }}
             title={`Роль: ${roleDisplay}`}
           >
             <span style={{ fontSize: '14px' }}>
-              👤 {currentUser?.name || currentUser?.login}
+              {currentUser?.name || currentUser?.login}
             </span>
             <button
               onClick={handleLogout}
@@ -115,24 +125,54 @@ function ProjectsPage({ projects, setProjects }) {
                 borderRadius: '16px',
                 cursor: 'pointer',
                 fontSize: '12px',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                height: '32px'
               }}
             >
               Выйти
             </button>
           </div>
-          
+
+          {isAdmin() && (
+            <button
+              onClick={() => navigate('/users')}
+              style={{
+                padding: '0 20px',
+                backgroundColor: '#ff9800',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                height: '48px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <img 
+                src="/users.png" 
+                alt="users" 
+                style={{ width: '21px', height: '21px' }}
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              Пользователи
+            </button>
+          )}
+
           <button
             onClick={() => navigate('/new')}
             style={{
-              padding: '12px 24px',
+              padding: '0 24px',
               backgroundColor: '#4CAF50',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
               fontSize: '16px',
               fontWeight: 'bold',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              height: '48px'
             }}
           >
             Создать новый проект
@@ -140,18 +180,25 @@ function ProjectsPage({ projects, setProjects }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '30px' }}>
+      {/* Панель поиска и сортировки */}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        marginBottom: '30px',
+        flexWrap: 'wrap',
+        gap: '10px'
+      }}>
         <input
           type="text"
           placeholder="Поиск проектов..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{
-            flex: 1,
-            padding: '12px',
+            width: '300px',
+            padding: '10px 12px',
             borderRadius: '8px',
             border: '1px solid #ddd',
-            fontSize: '16px'
+            fontSize: '14px'
           }}
         />
         
@@ -159,16 +206,39 @@ function ProjectsPage({ projects, setProjects }) {
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           style={{
-            padding: '12px',
+            padding: '10px 12px',
             borderRadius: '8px',
             border: '1px solid #ddd',
-            fontSize: '16px'
+            fontSize: '14px',
+            backgroundColor: 'white',
+            cursor: 'pointer',
+            width: '130px'
           }}
         >
-          <option value="date">По дате ↓</option>
-          <option value="name">По имени ↑</option>
+          <option value="date">По дате</option>
+          <option value="name">По имени</option>
           <option value="type">По типу</option>
         </select>
+
+        <button
+          onClick={toggleSortOrder}
+          style={{
+            padding: '10px 12px',
+            backgroundColor: '#f0f0f0',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            width: '36px'
+          }}
+          title={sortOrder === 'desc' ? 'По убыванию ↓' : 'По возрастанию ↑'}
+        >
+          {sortOrder === 'desc' ? '↓' : '↑'}
+        </button>
       </div>
 
       <div style={{ backgroundColor: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '30px', display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
@@ -191,10 +261,10 @@ function ProjectsPage({ projects, setProjects }) {
             ownerName={getUserName(project.ownerId)}
           />
         ))}
-        
+
         {filteredProjects.length === 0 && (
           <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '50px', color: '#999' }}>
-            {projects.length === 0 
+            {projects.length === 0
               ? 'Нет проектов. Создайте первый!'
               : 'Ничего не найдено'}
           </div>

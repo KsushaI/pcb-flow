@@ -16,7 +16,9 @@ import { toPng } from 'html-to-image';
 import CustomNode from '../CustomNode';
 import KnowledgeBase from '../KnowledgeBase';
 import { operationTemplates, processTemplates } from '../../data/templates';
-import { validateProject, rulesDatabase } from '../KnowledgeBase';
+// Стало:
+import { validateProject, rulesDatabase } from '../../data/rules';
+import { getDefaultParams } from '../../data/templates';
 
 const nodeTypes = {
     custom: CustomNode
@@ -26,7 +28,6 @@ function EditorPage({ projects, updateProject }) {
     const { id } = useParams();
     const navigate = useNavigate();
 
-    // Состояния для модальных окон
     const [showCustomModal, setShowCustomModal] = useState(false);
     const [showParamsModal, setShowParamsModal] = useState(false);
     const [customOpName, setCustomOpName] = useState('');
@@ -35,15 +36,11 @@ function EditorPage({ projects, updateProject }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [warnings, setWarnings] = useState([]);
     const [hasValidated, setHasValidated] = useState(false);
-
-    // Находим проект
+    const [customParamsText, setCustomParamsText] = useState('');
     const project = projects.find(p => p.id === id);
-
-    // Инициализация узлов и связей
     const [nodes, setNodes, onNodesChange] = useNodesState(project?.nodes || []);
     const [edges, setEdges, onEdgesChange] = useEdgesState(project?.edges || []);
 
-    // Состояние для редактируемых параметров
     const [editParams, setEditParams] = useState({
         name: '',
         type: 'ОПП',
@@ -80,7 +77,8 @@ function EditorPage({ projects, updateProject }) {
             type: 'custom',
             data: {
                 label: template.label,
-                category: template.category
+                category: template.category,
+                params: getDefaultParams(template.label)  // ← добавляем параметры
             },
             position: { x: Math.random() * 400, y: Math.random() * 400 }
         };
@@ -89,11 +87,35 @@ function EditorPage({ projects, updateProject }) {
 
     const addCustomNode = useCallback(() => {
         if (customOpName.trim()) {
-            addNode({ label: customOpName, category: customOpCategory });
+            // Парсим кастомные параметры из текста
+            const customParams = {};
+            const lines = customParamsText.split('\n');
+            for (const line of lines) {
+                const [key, value] = line.split('=');
+                if (key && value) {
+                    const trimmedKey = key.trim();
+                    const trimmedValue = parseFloat(value.trim());
+                    customParams[trimmedKey] = isNaN(trimmedValue) ? value.trim() : trimmedValue;
+                }
+            }
+
+            const newNode = {
+                id: `node-${uuidv4()}`,
+                type: 'custom',
+                data: {
+                    label: customOpName,
+                    category: customOpCategory,
+                    params: customParams,
+                    isCustom: true   // ← ВАЖНО: метка кастомной операции
+                },
+                position: { x: Math.random() * 400, y: Math.random() * 400 }
+            };
+            setNodes((nds) => nds.concat(newNode));
             setCustomOpName('');
+            setCustomParamsText('');
             setShowCustomModal(false);
         }
-    }, [customOpName, customOpCategory, addNode]);
+    }, [customOpName, customOpCategory, customParamsText, setNodes]);
 
     const doSaveProject = useCallback((updatedProject) => {
         updateProject(updatedProject);
@@ -144,23 +166,32 @@ function EditorPage({ projects, updateProject }) {
 
         const flowElement = document.querySelector('.react-flow');
         const viewportElement = document.querySelector('.react-flow__viewport');
+        const nodesElements = document.querySelectorAll('.react-flow__node');
 
-        if (!flowElement || !viewportElement) {
-            return;
-        }
+        if (!flowElement || !viewportElement) return;
 
+        // Сохраняем исходные стили
         const originalTransform = viewportElement.style.transform;
         const originalOverflow = flowElement.style.overflow;
         const originalWidth = flowElement.style.width;
         const originalHeight = flowElement.style.height;
+
+        // Временно фиксируем ширину узлов, чтобы они не сжимались
+        const originalNodeStyles = [];
+        nodesElements.forEach((nodeEl, idx) => {
+            originalNodeStyles[idx] = nodeEl.style.width;
+            nodeEl.style.width = 'auto';
+            nodeEl.style.minWidth = '260px';
+            nodeEl.style.maxWidth = '350px';
+        });
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
         nodes.forEach(node => {
             const x = node.position.x;
             const y = node.position.y;
-            const width = 180;
-            const height = 60;
+            const width = 220;
+            const height = 80;
 
             minX = Math.min(minX, x);
             minY = Math.min(minY, y);
@@ -182,18 +213,25 @@ function EditorPage({ projects, updateProject }) {
         flowElement.style.height = `${contentHeight}px`;
         viewportElement.style.transform = `translate(${-minX}px, ${-minY}px) scale(1)`;
 
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 150));
 
         try {
             const dataUrl = await toPng(flowElement, {
                 backgroundColor: '#ffffff',
                 quality: 1,
-                pixelRatio: 2,
+                pixelRatio: 3,
                 filter: (node) => {
                     const className = node?.classList?.toString() || '';
                     return !className.includes('react-flow__controls') &&
                         !className.includes('react-flow__minimap') &&
                         !className.includes('react-flow__panel');
+                },
+                style: {
+                    transform: 'none',
+                    left: '0',
+                    top: '0',
+                    fontSize: '14px',
+                    fontFamily: 'Tahoma, Geneva, sans-serif'
                 }
             });
 
@@ -204,6 +242,10 @@ function EditorPage({ projects, updateProject }) {
         } catch (error) {
             console.error('Ошибка при сохранении PNG:', error);
         } finally {
+            // Восстанавливаем стили узлов
+            nodesElements.forEach((nodeEl, idx) => {
+                nodeEl.style.width = originalNodeStyles[idx];
+            });
             flowElement.style.overflow = originalOverflow;
             flowElement.style.width = originalWidth;
             flowElement.style.height = originalHeight;
@@ -211,7 +253,6 @@ function EditorPage({ projects, updateProject }) {
         }
     }, [project, nodes]);
 
-    // Автосохранение графа
     useEffect(() => {
         if (!project) return;
         const timer = setTimeout(() => {
@@ -345,15 +386,8 @@ function EditorPage({ projects, updateProject }) {
                             gap: '8px'
                         }}
                     >
-                        <img
-                            src="/icon.png"
-                            alt="PNG"
-                            style={{
-                                width: '18px',
-                                height: '18px',
-                            }}
-                        />
-                        PNG
+
+                        🖼️ PNG
                     </button>
                 </div>
             </div>
@@ -478,24 +512,22 @@ function EditorPage({ projects, updateProject }) {
                     </ReactFlow>
                 </div>
 
-                {/* Правая панель - база знаний */}
+                {/* Правая панель */}
                 <div style={{
-                    width: '350px',
+                    width: '390px',
                     borderLeft: '1px solid #ddd',
                     backgroundColor: '#fafafa',
-                    overflow: 'auto'
+                    overflow: 'auto',
+                    flexShrink: 0
                 }}>
                     <KnowledgeBase
-                        boardType={project.type}
-                        accuracyClass={project.accuracyClass}
                         warnings={warnings}
-                        rulesDatabase={rulesDatabase}
                         hasValidated={hasValidated}
                     />
                 </div>
             </div>
 
-            {/* Модальное окно для кастомной операции */}
+            {/* Модальные окна... */}
             {showCustomModal && (
                 <div style={{
                     position: 'fixed',
@@ -513,10 +545,14 @@ function EditorPage({ projects, updateProject }) {
                         backgroundColor: 'white',
                         padding: '30px',
                         borderRadius: '12px',
-                        width: '400px',
-                        maxWidth: '90%'
+                        width: '450px',
+                        maxWidth: '90%',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
                     }}>
                         <h3 style={{ marginTop: 0 }}>Создание кастомной операции</h3>
+
+                        {/* Название операции */}
                         <div style={{ marginBottom: '20px' }}>
                             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                                 Название операции
@@ -536,6 +572,8 @@ function EditorPage({ projects, updateProject }) {
                                 autoFocus
                             />
                         </div>
+
+                        {/* Категория */}
                         <div style={{ marginBottom: '20px' }}>
                             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                                 Категория
@@ -562,9 +600,40 @@ function EditorPage({ projects, updateProject }) {
                                 <option>Пользовательские</option>
                             </select>
                         </div>
+
+                        {/* Кастомные параметры — можно добавлять свои */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                                Параметры (необязательно)
+                            </label>
+                            <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+                                Добавьте параметры в формате: название=значение (по одному на строку)
+                            </div>
+                            <textarea
+                                value={customParamsText}
+                                onChange={(e) => setCustomParamsText(e.target.value)}
+                                placeholder="Пример:&#10;температура=50&#10;время=10&#10;скорость=1.5"
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ddd',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace',
+                                    resize: 'vertical'
+                                }}
+                            />
+                        </div>
+
+                        {/* Кнопки */}
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                             <button
-                                onClick={() => setShowCustomModal(false)}
+                                onClick={() => {
+                                    setShowCustomModal(false);
+                                    setCustomOpName('');
+                                    setCustomParamsText('');
+                                }}
                                 style={{
                                     padding: '10px 20px',
                                     backgroundColor: '#f0f0f0',
@@ -612,18 +681,19 @@ function EditorPage({ projects, updateProject }) {
                 }}>
                     <div style={{
                         backgroundColor: 'white',
-                        padding: '30px',
+                        padding: '24px',
                         borderRadius: '12px',
-                        width: '500px',
+                        width: '480px',
                         maxWidth: '90%',
                         maxHeight: '80vh',
                         overflow: 'auto'
                     }}>
-                        <h3 style={{ marginTop: 0 }}>Параметры проекта</h3>
+                        <h3 style={{ marginTop: 0, fontSize: '18px', fontWeight: '500' }}>Параметры проекта</h3>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                Название проекта
+                        {/* Название проекта */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                                Название
                             </label>
                             <input
                                 type="text"
@@ -631,21 +701,23 @@ function EditorPage({ projects, updateProject }) {
                                 onChange={(e) => setEditParams(prev => ({ ...prev, name: e.target.value }))}
                                 style={{
                                     width: '100%',
-                                    padding: '10px',
+                                    padding: '10px 12px',
                                     borderRadius: '6px',
-                                    border: '1px solid #ddd',
+                                    border: '1px solid #ccc',
+                                    fontSize: '14px',
                                     boxSizing: 'border-box'
                                 }}
                             />
                         </div>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                        {/* Тип платы */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
                                 Тип платы
                             </label>
                             <div style={{ display: 'flex', gap: '20px' }}>
                                 {['ОПП', 'ДПП', 'МПП'].map(type => (
-                                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                                         <input
                                             type="radio"
                                             value={type}
@@ -658,130 +730,142 @@ function EditorPage({ projects, updateProject }) {
                             </div>
                         </div>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                Класс точности
-                            </label>
-                            <select
-                                value={editParams.accuracyClass}
-                                onChange={(e) => setEditParams(prev => ({ ...prev, accuracyClass: parseInt(e.target.value) }))}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #ddd'
-                                }}
-                            >
-                                {[1, 2, 3, 4, 5].map(cls => (
-                                    <option key={cls} value={cls}>Класс {cls}</option>
-                                ))}
-                            </select>
+                        {/* Два столбца */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                                    Класс точности
+                                </label>
+                                <select
+                                    value={editParams.accuracyClass}
+                                    onChange={(e) => setEditParams(prev => ({ ...prev, accuracyClass: parseInt(e.target.value) }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #ccc',
+                                        fontSize: '14px',
+                                        background: 'white'
+                                    }}
+                                >
+                                    {[1, 2, 3, 4, 5].map(cls => (
+                                        <option key={cls} value={cls}>Класс {cls}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                                    Материал
+                                </label>
+                                <select
+                                    value={editParams.material}
+                                    onChange={(e) => setEditParams(prev => ({ ...prev, material: e.target.value }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #ccc',
+                                        fontSize: '14px',
+                                        background: 'white'
+                                    }}
+                                >
+                                    <option>FR-4</option>
+                                    <option>PTFE</option>
+                                    <option>Керамика</option>
+                                    <option>Полиимид</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                                    Толщина фольги (мкм)
+                                </label>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    value={editParams.foil}
+                                    onChange={(e) => setEditParams(prev => ({ ...prev, foil: parseFloat(e.target.value) }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #ccc',
+                                        fontSize: '14px',
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                                    Стандарт
+                                </label>
+                                <select
+                                    value={editParams.standard}
+                                    onChange={(e) => {
+                                        const newStandard = e.target.value;
+                                        setEditParams(prev => ({
+                                            ...prev,
+                                            standard: newStandard,
+                                            ipcClass: newStandard.includes('IPC') ? '2' : 'none'
+                                        }));
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #ccc',
+                                        fontSize: '14px',
+                                        background: 'white'
+                                    }}
+                                >
+                                    <option value="ГОСТ 23752-79">ГОСТ 23752-79</option>
+                                    <option value="IPC-6012B Class 2">IPC-6012B Class 2</option>
+                                    <option value="IPC-6012B Class 3">IPC-6012B Class 3</option>
+                                </select>
+                            </div>
                         </div>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                Материал основания
-                            </label>
-                            <select
-                                value={editParams.material}
-                                onChange={(e) => setEditParams(prev => ({ ...prev, material: e.target.value }))}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #ddd'
-                                }}
-                            >
-                                <option>FR-4</option>
-                                <option>PTFE</option>
-                                <option>Керамика</option>
-                                <option>Полиимид</option>
-                            </select>
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                Толщина фольги (мкм)
-                            </label>
-                            <select
-                                value={editParams.foil}
-                                onChange={(e) => setEditParams(prev => ({ ...prev, foil: parseInt(e.target.value) }))}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #ddd'
-                                }}
-                            >
-                                <option value={18}>18 мкм</option>
-                                <option value={35}>35 мкм</option>
-                                <option value={70}>70 мкм</option>
-                            </select>
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                                Стандарт качества
-                            </label>
-                            <select
-                                value={editParams.standard}
-                                onChange={(e) => {
-                                    const newStandard = e.target.value;
-                                    setEditParams(prev => ({
-                                        ...prev,
-                                        standard: newStandard,
-                                        ipcClass: newStandard.includes('IPC') ? '2' : 'none'
-                                    }));
-                                }}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #ddd'
-                                }}
-                            >
-                                <option value="ГОСТ 23752-79">ГОСТ 23752-79</option>
-                                <option value="IPC-6012B Class 2">IPC-6012B Class 2</option>
-                                <option value="IPC-6012B Class 3">IPC-6012B Class 3</option>
-                            </select>
-                        </div>
-
+                        {/* IPC Class */}
                         {editParams.standard.includes('IPC') && (
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
                                     IPC Class
                                 </label>
                                 <div style={{ display: 'flex', gap: '20px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                                         <input
                                             type="radio"
                                             value="2"
                                             checked={editParams.ipcClass === '2'}
                                             onChange={(e) => setEditParams(prev => ({ ...prev, ipcClass: e.target.value }))}
                                         />
-                                        Class 2 (промышленная электроника)
+                                        Class 2
                                     </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                                         <input
                                             type="radio"
                                             value="3"
                                             checked={editParams.ipcClass === '3'}
                                             onChange={(e) => setEditParams(prev => ({ ...prev, ipcClass: e.target.value }))}
                                         />
-                                        Class 3 (высоконадёжная техника)
+                                        Class 3
                                     </label>
                                 </div>
                             </div>
                         )}
 
-                        <div style={{ display: 'flex', gap: '15px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                        {/* Кнопки */}
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
                             <button
                                 onClick={() => setShowParamsModal(false)}
                                 style={{
-                                    padding: '10px 20px',
-                                    backgroundColor: '#f0f0f0',
-                                    border: '1px solid #ddd',
+                                    padding: '8px 20px',
+                                    background: 'none',
+                                    border: '1px solid #ccc',
                                     borderRadius: '6px',
+                                    fontSize: '14px',
                                     cursor: 'pointer'
                                 }}
                             >
@@ -790,15 +874,16 @@ function EditorPage({ projects, updateProject }) {
                             <button
                                 onClick={saveProjectParams}
                                 style={{
-                                    padding: '10px 20px',
+                                    padding: '8px 20px',
                                     backgroundColor: '#4CAF50',
                                     color: 'white',
                                     border: 'none',
                                     borderRadius: '6px',
+                                    fontSize: '14px',
                                     cursor: 'pointer'
                                 }}
                             >
-                                Сохранить параметры
+                                Сохранить
                             </button>
                         </div>
                     </div>

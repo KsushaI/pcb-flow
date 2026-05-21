@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { users, setCurrentUser } from '../../data/user';
+import { getUsers, setCurrentUser } from '../../data/user';
 
 function LoginPage() {
   const [login, setLogin] = useState('');
@@ -10,7 +10,10 @@ function LoginPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    // Получаем актуальный список пользователей из localStorage
+    const users = getUsers();
     const user = users.find(u => u.login === login && u.password === password);
+    
     if (user) {
       setCurrentUser(user);
       navigate('/');
@@ -29,12 +32,12 @@ function LoginPage() {
     }}>
       <div style={{
         backgroundColor: 'white',
-        padding: '40px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        width: '320px'
+        padding: '48px',
+        borderRadius: '12px',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+        width: '400px'
       }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '24px' }}>PCB Process Designer</h2>
+        <h2 style={{ textAlign: 'center', marginBottom: '28px', fontSize: '24px' }}>Вход</h2>
         {error && <div style={{ color: 'red', marginBottom: '16px', textAlign: 'center' }}>{error}</div>}
         <form onSubmit={handleSubmit}>
           <input
@@ -42,26 +45,30 @@ function LoginPage() {
             placeholder="Логин"
             value={login}
             onChange={(e) => setLogin(e.target.value)}
-            style={{ width: '100%', padding: '10px', marginBottom: '16px', borderRadius: '4px', border: '1px solid #ddd' }}
+            style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '16px', boxSizing: 'border-box' }}
           />
           <input
             type="password"
             placeholder="Пароль"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: '100%', padding: '10px', marginBottom: '16px', borderRadius: '4px', border: '1px solid #ddd' }}
+            style={{ width: '100%', padding: '12px', marginBottom: '24px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '16px', boxSizing: 'border-box' }}
           />
           <button
             type="submit"
             disabled={!login || !password}
             style={{
               width: '100%',
-              padding: '10px',
+              padding: '12px',
               backgroundColor: (!login || !password) ? '#ccc' : '#4CAF50',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
-              cursor: (!login || !password) ? 'not-allowed' : 'pointer'
+              borderRadius: '6px',
+              cursor: (!login || !password) ? 'not-allowed' : 'pointer',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              display: 'block',
+              textAlign: 'center'
             }}
           >
             Войти

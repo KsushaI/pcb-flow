@@ -71,6 +71,7 @@ import LoginPage from './components/pages/LoginPage';
 import ProjectsPage from './components/pages/ProjectsPage';
 import NewProjectPage from './components/pages/NewProjectPage';
 import EditorPage from './components/pages/EditorPage';
+import UsersPage from './components/pages/UsersPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { getCurrentUser, isAdmin, setCurrentUser } from './data/user';
 
@@ -103,8 +104,12 @@ function App() {
   }, [currentUser, loading]);
 
   const addProject = (newProject) => {
-    if (!currentUser) {
+    // ВАЖНО: получаем пользователя напрямую, а не из состояния!
+    const user = getCurrentUser();
+    
+    if (!user) {
       console.error('Пользователь не авторизован');
+      alert('Ошибка: пользователь не авторизован');
       return;
     }
     
@@ -117,8 +122,7 @@ function App() {
     if (isAdmin()) {
       setProjects(allProjects);
     } else {
-      // Технолог видит только свои проекты
-      const userProjects = allProjects.filter(p => p.ownerId === currentUser.id);
+      const userProjects = allProjects.filter(p => p.ownerId === user.id);
       setProjects(userProjects);
     }
   };
@@ -130,9 +134,10 @@ function App() {
       const updatedAll = allProjects.map(p => p.id === updatedProject.id ? updatedProject : p);
       localStorage.setItem('pcb-projects', JSON.stringify(updatedAll));
       
+      const user = getCurrentUser();
       if (isAdmin()) {
         setProjects(updatedAll);
-      } else if (updatedProject.ownerId === currentUser?.id) {
+      } else if (updatedProject.ownerId === user?.id) {
         setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
       }
     }
@@ -159,6 +164,11 @@ function App() {
         <Route path="/editor/:id" element={
           <ProtectedRoute>
             <EditorPage projects={projects} updateProject={updateProject} />
+          </ProtectedRoute>
+        } />
+        <Route path="/users" element={
+          <ProtectedRoute>
+            <UsersPage />
           </ProtectedRoute>
         } />
         <Route path="*" element={<Navigate to="/" />} />
